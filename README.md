@@ -62,7 +62,8 @@ The building input file must contain at least:
 Time series files are expected to contain:
 
 - A building identifier column (`BuildingID` or `building_id`).
-- A **`VariableName`** column indicating the energy category.
+- A **`VariableName`** column indicating the energy category. A column named
+  **`Energy`** is also accepted and treated the same way.
 - One column per time step (e.g. `01/01 00:00:00`, `01/01 01:00:00`, ...).
 
 The scripts map variable names such as `Electricity:Facility [J](Daily)` or `Heating:EnergyTransfer [J](Hourly)` to internal categories.

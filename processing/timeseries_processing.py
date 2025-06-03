@@ -23,9 +23,17 @@ def process_timeseries_data(ts_df: pd.DataFrame, buildings_df: pd.DataFrame) -> 
         building_flags = buildings_df.set_index('building_id')[cols_to_get].to_dict('index')
         print(f"Loaded asset flags for {len(building_flags)} buildings.")
 
+    variable_col = None
+    if 'VariableName' in ts_df.columns:
+        variable_col = 'VariableName'
+    elif 'Energy' in ts_df.columns:
+        variable_col = 'Energy'
+
     id_cols_count = 0
-    if 'BuildingID' in ts_df.columns or 'building_id' in ts_df.columns: id_cols_count += 1
-    if 'VariableName' in ts_df.columns: id_cols_count += 1
+    if 'BuildingID' in ts_df.columns or 'building_id' in ts_df.columns:
+        id_cols_count += 1
+    if variable_col:
+        id_cols_count += 1
     if id_cols_count == 0:
         for i, col_type in enumerate(ts_df.dtypes):
             if pd.api.types.is_numeric_dtype(col_type): id_cols_count = i; break
@@ -34,26 +42,32 @@ def process_timeseries_data(ts_df: pd.DataFrame, buildings_df: pd.DataFrame) -> 
     num_timesteps = len(time_cols)
     print(f"Identified {num_timesteps} time columns.")
 
-    if 'VariableName' not in ts_df.columns: raise ValueError("'VariableName' column missing from time series file.")
-    variable_map = {
-        'Electricity:Facility [J](Daily) ': 'facility', 
-        'Heating:EnergyTransfer [J](Hourly)': 'heating',
-        'Cooling:EnergyTransfer [J](Hourly)': 'cooling',
-    }
-    
-    available_vars = ts_df['VariableName'].unique()
-    valid_keys = {k: v for k, v in variable_map.items() if k in available_vars}
-    print(f"Found matches for: {list(valid_keys.keys())}")
-    
     ts_df_filtered = pd.DataFrame()
-    if valid_keys:
-        ts_df_filtered = ts_df[ts_df['VariableName'].isin(valid_keys.keys())].copy()
-        ts_df_filtered['Energy'] = ts_df_filtered['VariableName'].map(valid_keys)
-        # Ensure time columns are numeric
-        for col in time_cols: ts_df_filtered[col] = pd.to_numeric(ts_df_filtered[col], errors='coerce')
-        ts_df_filtered.fillna(0.0, inplace=True)
+    if variable_col == 'VariableName':
+        variable_map = {
+            'Electricity:Facility [J](Daily) ': 'facility',
+            'Heating:EnergyTransfer [J](Hourly)': 'heating',
+            'Cooling:EnergyTransfer [J](Hourly)': 'cooling',
+        }
+
+        available_vars = ts_df['VariableName'].unique()
+        valid_keys = {k: v for k, v in variable_map.items() if k in available_vars}
+        print(f"Found matches for: {list(valid_keys.keys())}")
+
+        if valid_keys:
+            ts_df_filtered = ts_df[ts_df['VariableName'].isin(valid_keys.keys())].copy()
+            ts_df_filtered['Energy'] = ts_df_filtered['VariableName'].map(valid_keys)
+            # Ensure time columns are numeric
+            for col in time_cols:
+                ts_df_filtered[col] = pd.to_numeric(ts_df_filtered[col], errors='coerce')
+            ts_df_filtered.fillna(0.0, inplace=True)
+        else:
+            print("Warning: No matching variables found. All time series profiles will be synthetic.")
+    elif variable_col == 'Energy':
+        print("Using 'Energy' column from input DataFrame directly.")
+        ts_df_filtered = ts_df.copy()
     else:
-        print("Warning: No matching variables found. All time series profiles will be synthetic.")
+        raise ValueError("'VariableName' or 'Energy' column missing from time series file.")
 
     original_id_col = 'BuildingID' if 'BuildingID' in ts_df.columns else 'building_id'
     if original_id_col not in ts_df.columns: original_id_col = ts_df.columns[0]
