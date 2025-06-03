@@ -80,9 +80,17 @@ def process_timeseries_data(real_timeseries_path, processed_buildings_path, proc
         print(f"Error loading processed building CSV from {processed_buildings_path}: {e}")
 
     # --- Identify Time Columns ---
+    variable_col = None
+    if 'VariableName' in ts_df.columns:
+        variable_col = 'VariableName'
+    elif 'Energy' in ts_df.columns:
+        variable_col = 'Energy'
+
     id_cols_count = 0
-    if 'BuildingID' in ts_df.columns or 'building_id' in ts_df.columns: id_cols_count +=1
-    if 'VariableName' in ts_df.columns: id_cols_count +=1
+    if 'BuildingID' in ts_df.columns or 'building_id' in ts_df.columns:
+        id_cols_count += 1
+    if variable_col:
+        id_cols_count += 1
     if id_cols_count == 0: 
         for i, col_type in enumerate(ts_df.dtypes):
             if pd.api.types.is_numeric_dtype(col_type): id_cols_count = i; break
@@ -106,37 +114,46 @@ def process_timeseries_data(real_timeseries_path, processed_buildings_path, proc
     print(f"Identified {num_timesteps} time columns. First few: {time_cols[:min(5, len(time_cols))]}...")
 
     # --- Variable Mapping and Filtering ---
-    if 'VariableName' not in ts_df.columns:
-        raise ValueError("'VariableName' column is missing from the time series input CSV.")
+    ts_df_filtered = pd.DataFrame()
+    if variable_col == 'VariableName':
+        variable_map = {
+            'Electricity:Facility [J](Daily) ': 'facility',
+            'Heating:EnergyTransfer [J](Hourly)': 'heating',
+            'Cooling:EnergyTransfer [J](Hourly)': 'cooling',
+        }
+        print(f"Attempting to filter for variables based on variable_map: {list(variable_map.keys())}")
 
-    variable_map = {
-        'Electricity:Facility [J](Daily) ': 'facility', 
-        'Heating:EnergyTransfer [J](Hourly)': 'heating',
-        'Cooling:EnergyTransfer [J](Hourly)': 'cooling',
-    }
-    print(f"Attempting to filter for variables based on variable_map: {list(variable_map.keys())}")
+        available_variables_in_csv = ts_df['VariableName'].unique()
+        valid_keys_in_map = {k: v for k, v in variable_map.items() if k in available_variables_in_csv}
 
-    available_variables_in_csv = ts_df['VariableName'].unique()
-    valid_keys_in_map = {k: v for k, v in variable_map.items() if k in available_variables_in_csv}
+        if not valid_keys_in_map:
+            print("\n*** Warning: None of the specified VariableNames in variable_map were found in the CSV file! ***")
+            print("Available VariableNames in CSV were:")
+            for var_name in available_variables_in_csv:
+                print(f"- '{var_name}'")
+            print("Proceeding with synthetic data for all categories for all buildings.")
+            ts_df_filtered = pd.DataFrame(columns=ts_df.columns.tolist() + ['Energy', 'Interval'])
+        else:
+            print(f"Found matches in CSV for these VariableNames: {list(valid_keys_in_map.keys())}")
+            ts_df_filtered = ts_df[ts_df['VariableName'].isin(valid_keys_in_map.keys())].copy()
+            ts_df_filtered['Energy'] = ts_df_filtered['VariableName'].map(valid_keys_in_map)
 
-    ts_df_filtered = pd.DataFrame() 
-    if not valid_keys_in_map:
-         print("\n*** Warning: None of the specified VariableNames in variable_map were found in the CSV file! ***")
-         print("Available VariableNames in CSV were:")
-         for var_name in available_variables_in_csv: print(f"- '{var_name}'")
-         print("Proceeding with synthetic data for all categories for all buildings.")
-         ts_df_filtered = pd.DataFrame(columns=ts_df.columns.tolist() + ['Energy', 'Interval'])
+            def get_interval(var_name_str):
+                if "(Hourly)" in var_name_str:
+                    return "Hourly"
+                if "(Daily)" in var_name_str:
+                    return "Daily"
+                return "Unknown"
+
+            ts_df_filtered['Interval'] = ts_df_filtered['VariableName'].apply(get_interval)
+    elif variable_col == 'Energy':
+        print("Using 'Energy' column from input CSV directly.")
+        ts_df_filtered = ts_df.copy()
+        valid_keys_in_map = None
     else:
-        print(f"Found matches in CSV for these VariableNames: {list(valid_keys_in_map.keys())}")
-        ts_df_filtered = ts_df[ts_df['VariableName'].isin(valid_keys_in_map.keys())].copy()
-        ts_df_filtered['Energy'] = ts_df_filtered['VariableName'].map(valid_keys_in_map)
-        def get_interval(var_name_str):
-            if "(Hourly)" in var_name_str: return "Hourly"
-            if "(Daily)" in var_name_str: return "Daily"
-            return "Unknown"
-        ts_df_filtered['Interval'] = ts_df_filtered['VariableName'].apply(get_interval)
+        raise ValueError("'VariableName' or 'Energy' column is missing from the time series input CSV.")
 
-    if ts_df_filtered.empty and valid_keys_in_map: 
+    if variable_col == 'VariableName' and ts_df_filtered.empty and valid_keys_in_map:
         print("Warning: No data rows remained after filtering with valid variable names. Profiles will be synthetic.")
     
     original_id_col_name_in_ts = None
