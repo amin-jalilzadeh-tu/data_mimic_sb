@@ -94,25 +94,35 @@ def process_timeseries_data(ts_df: pd.DataFrame, buildings_df: pd.DataFrame) -> 
         solar_cap = info.get('solar_capacity_kWp', 2.0)
         batt_pow = info.get('battery_power_kW', 2.0)
         
+
+
         for cat in EXPECTED_CATEGORIES:
             if cat == "total_electricity": continue
-            profile = None
-            if b_id in pivoted_data.index and cat in pivoted_data.columns.get_level_values('Energy'):
-                profile = pivoted_data.loc[b_id, (slice(None), cat)].fillna(0.0).values.tolist()
+            
+            # Always generate synthetic profiles for solar and battery based on flags, overwriting any input.
+            if cat == "generation":
+                base_gen_j = solar_cap * J_PER_KWH * 0.3
+                profile = [round(max(0, random.gauss(base_gen_j, base_gen_j * 0.8)), 0) if has_solar else 0.0 for _ in range(num_timesteps)]
+            
+            elif cat == "battery_charge":
+                base_batt_j = batt_pow * J_PER_KWH
+                profile = [round(random.uniform(-base_batt_j, base_batt_j) * 0.5, 0) if has_battery else 0.0 for _ in range(num_timesteps)]
+            
+            # For other categories, use the original logic: use data from file first, then synthesize if missing.
+            else:
+                profile = None
+                if b_id in pivoted_data.index and cat in pivoted_data.columns.get_level_values('Energy'):
+                    profile = pivoted_data.loc[b_id, (slice(None), cat)].fillna(0.0).values.tolist()
 
-            if profile is None: # Synthetic data in Joules
-                if cat == "generation":
-                    base_gen_j = solar_cap * J_PER_KWH * 0.3
-                    profile = [round(max(0, random.gauss(base_gen_j, base_gen_j * 0.8)), 0) if has_solar else 0.0 for _ in range(num_timesteps)]
-                elif cat == "battery_charge":
-                    base_batt_j = batt_pow * J_PER_KWH
-                    profile = [round(random.uniform(-base_batt_j, base_batt_j) * 0.5, 0) if has_battery else 0.0 for _ in range(num_timesteps)]
-                elif cat == "heating": profile = [round(max(0, random.gauss(0.8 * J_PER_KWH, 0.4 * J_PER_KWH)), 0) for _ in range(num_timesteps)]
-                elif cat == "cooling": profile = [round(max(0, random.gauss(0.4 * J_PER_KWH, 0.2 * J_PER_KWH)), 0) for _ in range(num_timesteps)]
-                elif cat == "facility": profile = [round(max(0.05 * J_PER_KWH, random.gauss(0.3 * J_PER_KWH, 0.1 * J_PER_KWH)), 0) for _ in range(num_timesteps)]
-                else: profile = [0.0] * num_timesteps
+                if profile is None:
+                    if cat == "heating": profile = [round(max(0, random.gauss(0.8 * J_PER_KWH, 0.4 * J_PER_KWH)), 0) for _ in range(num_timesteps)]
+                    elif cat == "cooling": profile = [round(max(0, random.gauss(0.4 * J_PER_KWH, 0.2 * J_PER_KWH)), 0) for _ in range(num_timesteps)]
+                    elif cat == "facility": profile = [round(max(0.05 * J_PER_KWH, random.gauss(0.3 * J_PER_KWH, 0.1 * J_PER_KWH)), 0) for _ in range(num_timesteps)]
+                    else: profile = [0.0] * num_timesteps
             
             final_data_dict[b_id][cat] = profile
+
+
 
     for b_id in final_data_dict:
         total_elec = np.zeros(num_timesteps, dtype=float)
