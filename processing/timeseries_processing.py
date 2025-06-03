@@ -98,7 +98,7 @@ def process_timeseries_data(ts_df: pd.DataFrame, buildings_df: pd.DataFrame) -> 
             if cat == "total_electricity": continue
             profile = None
             if b_id in pivoted_data.index and cat in pivoted_data.columns.get_level_values('Energy'):
-                profile = pivoted_data.loc[b_id, (cat, slice(None))].fillna(0.0).values.tolist()
+            profile = pivoted_data.loc[b_id, (slice(None), cat)].fillna(0.0).values.tolist()
 
             if profile is None: # Synthetic data in Joules
                 if cat == "generation":
